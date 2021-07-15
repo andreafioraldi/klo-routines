@@ -114,6 +114,17 @@ where
     }
 }
 
+impl<'a, F, T> Iterator for KloRoutine<'a, F, T>
+where
+    F: FnMut(),
+{
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.resume()
+    }
+}
+
 pub fn yield_<T>(value: T) {
     CUR_KLO.with(|v| {
         let ctx: &mut KloContext<T> = unsafe { transmute(*v.borrow()) };
@@ -121,16 +132,20 @@ pub fn yield_<T>(value: T) {
     });
 }
 
+pub fn flush<T>(value: T) {
+    yield_(value)
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{yield_, KloRoutine};
+    use crate::{flush, KloRoutine};
 
     #[test]
     fn it_works() {
         let mut cnt = 0;
         let mut func = || {
             for _ in 0..16 {
-                yield_(cnt);
+                flush(cnt);
                 cnt += 1;
             }
         };
@@ -145,5 +160,23 @@ mod tests {
         };
 
         move_fn();
+    }
+
+    #[test]
+    fn iterator() {
+        let mut cnt = 0;
+        let mut func = || {
+            for _ in 0..16 {
+                flush(cnt);
+                cnt += 1;
+            }
+        };
+        let mut klo = KloRoutine::new(&mut func);
+
+        let mut i = 0;
+        for n in &mut klo {
+            assert_eq!(i, n);
+            i += 1;
+        }
     }
 }

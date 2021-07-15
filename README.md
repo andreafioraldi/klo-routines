@@ -5,17 +5,27 @@ Rust cheap coroutines with libc::*context
 ## Example
 
 ```rust
-let mut cnt = 0;
-let mut func = || {
-    for _ in 0..16 {
-        yield_(cnt);
-        cnt += 1;
-    }
-};
+use klo_routines::{flush, KloRoutine};
 
-let mut klo = KloRoutine::new(&mut func);
-println!("{}", klo.resume().unwrap()); // 0
-println!("{}", klo.resume().unwrap()); // 1
+fn main() {
+    let mut cnt = 0;
+    let mut func = || {
+        for _ in 0..16 {
+            flush(cnt);
+            cnt += 1;
+        }
+    };
+
+    let mut klo = KloRoutine::new(&mut func);
+    while let Some(n) = klo.resume() {
+        println!("{}", n);
+    }
+    
+    // or you can use it as iterator
+    // for n in &mut klo {
+    //     println!("{}", n);
+    // }
+}
 ```
 
 #### License
