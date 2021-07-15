@@ -63,7 +63,10 @@ impl<T> KloContext<T> {
     pub fn yield_(&mut self, value: T) {
         unsafe {
             self.yielded = Some(value);
-            swapcontext(&mut self.running, &mut self.suspended);
+            if swapcontext(&mut self.running, &mut self.suspended) == -1 {
+                libc::perror(b"swapcontext\0" as *const _ as *const libc::c_char);
+                panic!("swapcontext failed");
+            }
         }
     }
 
@@ -71,7 +74,10 @@ impl<T> KloContext<T> {
         unsafe {
             self.yielded = None;
             self.finished = true;
-            swapcontext(&mut self.running, &mut self.suspended);
+            if swapcontext(&mut self.running, &mut self.suspended) == -1 {
+                libc::perror(b"swapcontext\0" as *const _ as *const libc::c_char);
+                panic!("swapcontext failed");
+            }
         }
     }
 }
@@ -127,7 +133,10 @@ where
             *v.borrow_mut() = &mut self.ctx as *mut _ as *mut c_void;
         });
         unsafe {
-            swapcontext(&mut self.ctx.suspended, &mut self.ctx.running);
+            if swapcontext(&mut self.ctx.suspended, &mut self.ctx.running) == -1 {
+                libc::perror(b"swapcontext\0" as *const _ as *const libc::c_char);
+                panic!("swapcontext failed");
+            }
         }
         self.ctx.yielded.take()
     }
