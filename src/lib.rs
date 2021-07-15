@@ -106,10 +106,20 @@ where
                 ctx: KloContext::new(size),
                 func,
             };
+
+            let ss_sp = instance.ctx.running.uc_stack.ss_sp;
+            let ss_size = instance.ctx.running.uc_stack.ss_size;
+            let uc_link = instance.ctx.running.uc_link;
+
             if getcontext(&mut instance.ctx.running) != 0 {
                 libc::perror(b"getcontext\0" as *const _ as *const libc::c_char);
                 panic!("getcontext failed");
             }
+
+            instance.ctx.running.uc_stack.ss_sp = ss_sp;
+            instance.ctx.running.uc_stack.ss_size = ss_size;
+            instance.ctx.running.uc_link = uc_link;
+
             makecontext(
                 &mut instance.ctx.running,
                 transmute(wrapper::<F, T> as extern "C" fn(_)),
