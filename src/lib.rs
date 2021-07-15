@@ -1,6 +1,6 @@
 use core::{ffi::c_void, mem::transmute, ops::FnMut, ptr::null_mut};
-use std::cell::RefCell;
 use libc;
+use std::cell::RefCell;
 
 thread_local! {
     static CUR_KLO: RefCell<*mut c_void> = RefCell::new(null_mut());
@@ -28,7 +28,8 @@ pub struct KloContext<T> {
 }
 
 impl<T> KloContext<T> {
-    pub fn new() -> Self {
+    pub fn new(size: usize) -> Self {
+        assert!(size >= libc::MINSIGSTKSZ);
         unsafe {
             let mut instance = Self {
                 running: core::mem::zeroed(),
@@ -36,8 +37,8 @@ impl<T> KloContext<T> {
                 yielded: None,
                 finished: false,
             };
-            instance.running.uc_stack.ss_sp = libc::malloc(libc::MINSIGSTKSZ);
-            instance.running.uc_stack.ss_size = libc::MINSIGSTKSZ;
+            instance.running.uc_stack.ss_sp = libc::malloc(size);
+            instance.running.uc_stack.ss_size = size;
             instance.running.uc_link = null_mut();
             instance
         }
@@ -77,10 +78,10 @@ impl<'a, F, T> KloRoutine<'a, F, T>
 where
     F: FnMut(),
 {
-    pub fn new(func: &'a mut F) -> Self {
+    pub fn with_stack_size(func: &'a mut F, size: usize) -> Self {
         unsafe {
             let mut instance = Self {
-                ctx: KloContext::new(),
+                ctx: KloContext::new(size),
                 func,
             };
             libc::getcontext(&mut instance.ctx.running);
@@ -93,6 +94,10 @@ where
             );
             instance
         }
+    }
+
+    pub fn new(func: &'a mut F) -> Self {
+        Self::with_stack_size(func, libc::MINSIGSTKSZ)
     }
 
     pub fn resume(&mut self) -> Option<T> {
