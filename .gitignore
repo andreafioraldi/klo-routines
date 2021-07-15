@@ -23,10 +23,6 @@ perf.data.old
 .vscode
 test.dict
 
-# Ignore all built fuzzers
-fuzzer_*
-AFLplusplus
-
 # Ignore common dummy and logfiles
 *.log
 a
