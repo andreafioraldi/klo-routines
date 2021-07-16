@@ -1,6 +1,22 @@
 use core::{ffi::c_void, mem::transmute, ops::FnMut, ptr::null_mut};
 use libc;
+#[cfg(all(unix, not(any(target_os = "macos", target_is = "ios"))))]
+use libc::{getcontext, makecontext, swapcontext};
 use std::cell::RefCell;
+
+// swapcontext and getcontext are not exported through rust's libc crate on macos.
+#[cfg(any(target_os = "macos", target_is = "ios"))]
+extern "C" {
+    fn makecontext(
+        ucp: *mut libc::ucontext_t,
+        func: extern "C" fn(),
+        argc: libc::c_int,
+        data: *mut libc::c_void,
+    );
+    fn getcontext(ucp: *mut libc::ucontext_t) -> libc::c_int;
+
+    fn swapcontext(oucp: *mut libc::ucontext_t, ucp: *mut libc::ucontext_t) -> libc::c_int;
+}
 
 thread_local! {
     static CUR_KLO: RefCell<*mut c_void> = RefCell::new(null_mut());
@@ -47,7 +63,10 @@ impl<T> KloContext<T> {
     pub fn yield_(&mut self, value: T) {
         unsafe {
             self.yielded = Some(value);
-            libc::swapcontext(&mut self.running, &mut self.suspended);
+            if swapcontext(&mut self.running, &mut self.suspended) == -1 {
+                libc::perror(b"swapcontext\0" as *const _ as *const libc::c_char);
+                panic!("swapcontext failed");
+            }
         }
     }
 
@@ -55,7 +74,10 @@ impl<T> KloContext<T> {
         unsafe {
             self.yielded = None;
             self.finished = true;
-            libc::swapcontext(&mut self.running, &mut self.suspended);
+            if swapcontext(&mut self.running, &mut self.suspended) == -1 {
+                libc::perror(b"swapcontext\0" as *const _ as *const libc::c_char);
+                panic!("swapcontext failed");
+            }
         }
     }
 }
@@ -84,8 +106,21 @@ where
                 ctx: KloContext::new(size),
                 func,
             };
-            libc::getcontext(&mut instance.ctx.running);
-            libc::makecontext(
+
+            let ss_sp = instance.ctx.running.uc_stack.ss_sp;
+            let ss_size = instance.ctx.running.uc_stack.ss_size;
+            let uc_link = instance.ctx.running.uc_link;
+
+            if getcontext(&mut instance.ctx.running) != 0 {
+                libc::perror(b"getcontext\0" as *const _ as *const libc::c_char);
+                panic!("getcontext failed");
+            }
+
+            instance.ctx.running.uc_stack.ss_sp = ss_sp;
+            instance.ctx.running.uc_stack.ss_size = ss_size;
+            instance.ctx.running.uc_link = uc_link;
+
+            makecontext(
                 &mut instance.ctx.running,
                 transmute(wrapper::<F, T> as extern "C" fn(_)),
                 1,
@@ -97,7 +132,7 @@ where
     }
 
     pub fn new(func: &'a mut F) -> Self {
-        Self::with_stack_size(func, libc::MINSIGSTKSZ)
+        Self::with_stack_size(func, 16 * 1024 * 1024)
     }
 
     pub fn resume(&mut self) -> Option<T> {
@@ -108,7 +143,10 @@ where
             *v.borrow_mut() = &mut self.ctx as *mut _ as *mut c_void;
         });
         unsafe {
-            libc::swapcontext(&mut self.ctx.suspended, &mut self.ctx.running);
+            if swapcontext(&mut self.ctx.suspended, &mut self.ctx.running) == -1 {
+                libc::perror(b"swapcontext\0" as *const _ as *const libc::c_char);
+                panic!("swapcontext failed");
+            }
         }
         self.ctx.yielded.take()
     }
